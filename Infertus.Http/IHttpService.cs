@@ -2,12 +2,11 @@
 
 public interface IHttpService
 {
-    Task<string> GetAsync(string query);
-    Task<T> GetJsonAsync<T>(string query);
     Task<HttpResponseMessage> HeadAsync(Uri uri);
-    Task<string> PostAsync<TPayload>(string query, TPayload payload);
-    Task<string> PostAsJsonAsync<TPayload>(string query, TPayload payload);
     Task<string> GetPageContentStringAsync(Uri uri);
     Task<DownloadedFile> DownloadFileAsync(Uri uri);
     Task<FileInfo> DownloadFileToPathAsync(Uri uri, string targetPath);
+    Task<T> GetJsonAsync<T>(string query, string? bearerToken = null);
+    Task<string> GetAsync(string query, string? bearerToken = null);
+    Task<string> PostAsync<TPayload>(string query, TPayload payload, string? bearerToken = null);
 }

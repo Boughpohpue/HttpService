@@ -1,5 +1,5 @@
 ﻿using Newtonsoft.Json;
-using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Text;
 using StatusCode = System.Net.HttpStatusCode;
 using CompletionOpt = System.Net.Http.HttpCompletionOption;
@@ -8,6 +8,8 @@ namespace Infertus.Http;
 
 public class HttpService : IHttpService
 {
+    private const int DelayMilliseconds = 1000;
+
     private static readonly SemaphoreSlim _throttle = new(1, 1);
 
     private readonly HttpClient _client;
@@ -25,26 +27,33 @@ public class HttpService : IHttpService
         try
         {
             var request = new HttpRequestMessage(HttpMethod.Head, uri);
-            return await SendWithRetryAsync(() => _client.SendAsync(request))
+            return await SendWithRetryAsync(() => 
+                    _client.SendAsync(request))
                 .ConfigureAwait(false);
         }
         finally
         {
-            await Task.Delay(1000).ConfigureAwait(false);
+            await Task.Delay(DelayMilliseconds)
+                .ConfigureAwait(false);
             _throttle.Release();
         }
     }
 
-    public async Task<T> GetJsonAsync<T>(string query)
+    public async Task<T> GetJsonAsync<T>(string query, string? bearerToken = null)
     {
-        var json = await GetAsync(query).ConfigureAwait(false);
+        var json = await GetAsync(query, bearerToken)
+            .ConfigureAwait(false);
+
         return JsonConvert.DeserializeObject<T>(json)!;
     }
 
     public async Task<string> GetPageContentStringAsync(Uri uri)
     {
-        using var response = await SendGetAsync(uri).ConfigureAwait(false);
-        return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        using var response = await SendGetAsync(uri)
+            .ConfigureAwait(false);
+
+        return await response.Content.ReadAsStringAsync()
+            .ConfigureAwait(false);
     }
 
     public async Task<DownloadedFile> DownloadFileAsync(Uri uri)
@@ -73,13 +82,19 @@ public class HttpService : IHttpService
         return new FileInfo(targetPath);
     }
 
-    public async Task<string> GetAsync(string query)
+    public async Task<string> GetAsync(string query, string? bearerToken = null)
     {
         await _throttle.WaitAsync().ConfigureAwait(false);
         try
         {
+            using var request = new HttpRequestMessage(HttpMethod.Get, query);
+            if (bearerToken != null)
+                request.Headers.Authorization = 
+                    new AuthenticationHeaderValue("Bearer", bearerToken);
+
             var response = await SendWithRetryAsync(() =>
-                _client.GetAsync(query)).ConfigureAwait(false);
+                    _client.SendAsync(request))
+                .ConfigureAwait(false);
 
             response.EnsureSuccessStatusCode();
 
@@ -88,41 +103,29 @@ public class HttpService : IHttpService
         }
         finally
         {
-            await Task.Delay(1000).ConfigureAwait(false);
+            await Task.Delay(DelayMilliseconds)
+                .ConfigureAwait(false);
             _throttle.Release();
         }
     }
 
-    public async Task<string> PostAsync<TPayload>(string query, TPayload payload)
+    public async Task<string> PostAsync<TPayload>(
+        string query, TPayload payload, string? bearerToken = null)
     {
         await _throttle.WaitAsync().ConfigureAwait(false);
         try
         {
             var json = JsonConvert.SerializeObject(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(HttpMethod.Post, query) 
+            { Content = content };
+
+            if (bearerToken != null)
+                request.Headers.Authorization = 
+                    new AuthenticationHeaderValue("Bearer", bearerToken);
 
             var response = await SendWithRetryAsync(() =>
-                _client.PostAsync(query, content)).ConfigureAwait(false);
-
-            response.EnsureSuccessStatusCode();
-
-            return await response.Content.ReadAsStringAsync()
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            await Task.Delay(1000).ConfigureAwait(false);
-            _throttle.Release();
-        }
-    }
-
-    public async Task<string> PostAsJsonAsync<TPayload>(string query, TPayload payload)
-    {
-        await _throttle.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            var response = await SendWithRetryAsync(() =>
-                    _client.PostAsJsonAsync(query, payload))
+                    _client.SendAsync(request))
                 .ConfigureAwait(false);
 
             response.EnsureSuccessStatusCode();
@@ -132,7 +135,8 @@ public class HttpService : IHttpService
         }
         finally
         {
-            await Task.Delay(1000).ConfigureAwait(false);
+            await Task.Delay(DelayMilliseconds)
+                .ConfigureAwait(false);
             _throttle.Release();
         }
     }
@@ -157,7 +161,8 @@ public class HttpService : IHttpService
         }
         finally
         {
-            await Task.Delay(1000).ConfigureAwait(false);
+            await Task.Delay(DelayMilliseconds)
+                .ConfigureAwait(false);
             _throttle.Release();
         }
     }
@@ -169,16 +174,17 @@ public class HttpService : IHttpService
         {
             var response = await send().ConfigureAwait(false);
 
-            if (response.IsSuccessStatusCode
-                || !IsRetryable(response.StatusCode))
+            if (response.IsSuccessStatusCode || !IsRetryable(response.StatusCode))
                 return response;
 
             if (attempt >= maxRetries)
                 return response;
 
-            var delay = GetRetryAfter(response) ?? TimeSpan.FromSeconds(1);
+            var delay = GetRetryAfter(response) 
+                ?? TimeSpan.FromMilliseconds(DelayMilliseconds);
 
-            await Task.Delay(delay).ConfigureAwait(false);
+            await Task.Delay(delay)
+                .ConfigureAwait(false);
         }
     }
 
