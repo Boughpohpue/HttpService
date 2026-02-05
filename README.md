@@ -118,13 +118,3 @@ public interface IHttpService
 
 ---
 
-## Features Overview
-
-* **Throttling:** prevents multiple concurrent requests.
-* **Retry:** automatic retries for `429` and `503` with `Retry-After`.
-* **Flexible Authentication:** Bearer token or Basic auth.
-* **Custom headers and cookies** support.
-* **Easy integration with DI and modern C# projects.**
-
----
-
