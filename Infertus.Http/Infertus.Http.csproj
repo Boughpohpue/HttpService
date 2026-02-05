@@ -7,10 +7,10 @@
     
     <!-- NuGet metadata -->
     <PackageId>Infertus.Http</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>Lukasz Kulik</Authors>
     <Company>Infertus</Company>
-    <Description>A small, robust HTTP service library that simplifies making authorized web requests (basic and bearer), handling retries, throttling, JSON payloads, and file downloads in .NET projects.</Description>
+    <Description>A small yet robust and fully configurable HTTP service library that simplifies making authorized web requests, handling retries, throttling, JSON payloads, and file downloads in .NET projects.</Description>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/Boughpohpue/HttpService</RepositoryUrl>
   </PropertyGroup>

@@ -1,8 +1,8 @@
 ﻿using Newtonsoft.Json;
 using System.Net.Http.Headers;
 using System.Text;
-using StatusCode = System.Net.HttpStatusCode;
 using CompletionOpt = System.Net.Http.HttpCompletionOption;
+using StatusCode = System.Net.HttpStatusCode;
 
 namespace Infertus.Http;
 
@@ -23,6 +23,7 @@ public class HttpService : IHttpService
 
     public async Task<HttpResponseMessage> HeadAsync(Uri uri)
     {
+        ValidateUri(uri);
         await _throttle.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -39,9 +40,9 @@ public class HttpService : IHttpService
         }
     }
 
-    public async Task<T> GetJsonAsync<T>(string query, string? bearerToken = null)
+    public async Task<T> GetJsonAsync<T>(Uri uri, string? bearerToken = null)
     {
-        var json = await GetAsync(query, bearerToken)
+        var json = await GetAsync(uri, bearerToken)
             .ConfigureAwait(false);
 
         return JsonConvert.DeserializeObject<T>(json)!;
@@ -82,12 +83,13 @@ public class HttpService : IHttpService
         return new FileInfo(targetPath);
     }
 
-    public async Task<string> GetAsync(string query, string? bearerToken = null)
+    public async Task<string> GetAsync(Uri uri, string? bearerToken = null)
     {
+        ValidateUri(uri);
         await _throttle.WaitAsync().ConfigureAwait(false);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, query);
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             if (bearerToken != null)
                 request.Headers.Authorization = 
                     new AuthenticationHeaderValue("Bearer", bearerToken);
@@ -110,14 +112,15 @@ public class HttpService : IHttpService
     }
 
     public async Task<string> PostAsync<TPayload>(
-        string query, TPayload payload, string? bearerToken = null)
+        Uri uri, TPayload payload, string? bearerToken = null)
     {
+        ValidateUri(uri);
         await _throttle.WaitAsync().ConfigureAwait(false);
         try
         {
             var json = JsonConvert.SerializeObject(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var request = new HttpRequestMessage(HttpMethod.Post, query) 
+            using var request = new HttpRequestMessage(HttpMethod.Post, uri) 
             { Content = content };
 
             if (bearerToken != null)
@@ -141,13 +144,48 @@ public class HttpService : IHttpService
         }
     }
 
-    public static string BuildQueryString(Dictionary<string, string> parameters) =>
-        string.Join("&", parameters.Select(kv =>
-            $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+    public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
+    {
+        await _throttle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await SendWithRetryAsync(() => 
+                _client.SendAsync(request))
+                    .ConfigureAwait(false);
+        }
+        finally
+        {
+            await Task.Delay(DelayMilliseconds)
+                .ConfigureAwait(false);
+            _throttle.Release();
+        }
+    }
+
+    public async Task<string> SendRequestAsync(HttpRequestMessage request)
+    {
+        await _throttle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var response = await SendAsync(request)
+                .ConfigureAwait(false);
+
+            response.EnsureSuccessStatusCode();
+
+            return await response.Content.ReadAsStringAsync()
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            await Task.Delay(DelayMilliseconds)
+                .ConfigureAwait(false);
+            _throttle.Release();
+        }
+    }
 
     private async Task<HttpResponseMessage> SendGetAsync(Uri uri,
         CompletionOpt completionOpt = CompletionOpt.ResponseContentRead)
     {
+        ValidateUri(uri);
         await _throttle.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -186,6 +224,12 @@ public class HttpService : IHttpService
             await Task.Delay(delay)
                 .ConfigureAwait(false);
         }
+    }
+
+    private void ValidateUri(Uri uri)
+    {
+        if (!uri.IsAbsoluteUri && _client.BaseAddress == null)
+            throw new ArgumentException($"Can't use relative uri while base address is not set!");
     }
 
     private static TimeSpan? GetRetryAfter(HttpResponseMessage response)
